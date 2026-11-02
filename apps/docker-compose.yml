@@ -1,0 +1,153 @@
+services:
+  # =========================================================================
+  # 1. DATABASE ENGINE: PostgreSQL 15 + TimescaleDB (Port 5532)
+  # =========================================================================
+  vos-postgres:
+    image: timescale/timescaledb-ha:pg15-latest
+    container_name: vos-postgres
+    restart: always
+    network_mode: host
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-voxagrid}
+      POSTGRES_DB: ${DB_NAME:-sbc}
+      PGPORT: 5532
+      TZ: ${APP_TZ:-Asia/Jakarta}
+    command: [
+      "postgres",
+      "-p", "5532",
+      "-c", "timezone=Asia/Jakarta",
+      "-c", "shared_buffers=512MB",
+      "-c", "work_mem=16MB",
+      "-c", "maintenance_work_mem=128MB",
+      "-c", "max_connections=200",
+      "-c", "checkpoint_timeout=15min",
+      "-c", "max_wal_size=4GB",
+      "-c", "synchronous_commit=off"
+    ]
+    volumes:
+      - vos_pgdata:/home/postgres/pgdata/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -p 5532 -U ${DB_USER:-admin} -d ${DB_NAME:-sbc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # 2. CACHE & BUFFER ENGINE: Redis 7 (Port 6379)
+  # =========================================================================
+  vos-redis:
+    image: redis:7-alpine
+    container_name: vos-redis
+    restart: always
+    network_mode: host
+    environment:
+      TZ: ${APP_TZ:-Asia/Jakarta}
+    command: >
+      redis-server
+      --port 6379
+      --bind 127.0.0.1
+      --protected-mode yes
+      --requirepass ${REDIS_PASS:-RedisSbc2026!}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --tcp-keepalive 300
+    volumes:
+      - vos_redisdata:/data
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS:-RedisSbc2026!}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # 3. BACKEND API DAEMON: Go Middleware (Port 8080)
+  # =========================================================================
+  vos-middleware:
+    build:
+      context: ./middleware
+      dockerfile: Dockerfile
+    image: voxagrid/vos-middleware:latest
+    container_name: vos-middleware
+    restart: always
+    network_mode: host
+    depends_on:
+      vos-postgres:
+        condition: service_healthy
+      vos-redis:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      ENV: production
+      TZ: ${APP_TZ:-Asia/Jakarta}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5532
+      DB_USER: ${DB_USER:-admin}
+      DB_PASS: ${DB_PASS:-voxagrid}
+      DB_NAME: ${DB_NAME:-sbc}
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      REDIS_PASS: ${REDIS_PASS:-RedisSbc2026!}
+      LICENSE_FILE_PATH: /app/license.lic
+      LICENSE_SERVER_URL: ${LICENSE_SERVER_URL:-https://license-vos-ui.voxagrid.net}
+      VOS_API_URL: ${VOS_API_URL:-http://127.0.0.1:6099}
+      LIVE_CDR_SYNC_INTERVAL_SEC: 15
+    volumes:
+      - ./license.lic:/app/license.lic:rw
+      - ./logs:/var/log/vos-ui
+      - ./nginx/conf.d:/etc/nginx/conf.d:rw
+      - ./nginx/ssl:/etc/nginx/ssl:rw
+      - ./nginx/certbot:/var/www/certbot:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # 4. FRONTEND WEB & REVERSE PROXY: Nginx (Port 80)
+  # =========================================================================
+  vos-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: voxagrid/vos-frontend:latest
+    container_name: vos-frontend
+    restart: always
+    network_mode: host
+    depends_on:
+      - vos-middleware
+    environment:
+      TZ: ${APP_TZ:-Asia/Jakarta}
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/certbot:/var/www/certbot:ro
+      - ./logs/nginx:/var/log/nginx
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vos_pgdata:
+    name: vos_pgdata
+    driver: local
+  vos_redisdata:
+    name: vos_redisdata
+    driver: local

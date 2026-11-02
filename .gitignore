@@ -1,0 +1,12 @@
+# Vendor internal license authority (Private only)
+license-server/
+
+# Local environment & secret files
+.env
+*.pem
+*.key
+*.lic
+
+# Runtime logs & data
+logs/
+*.log
