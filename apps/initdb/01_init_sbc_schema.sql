@@ -98,7 +98,9 @@ CREATE TABLE public.cdr_records (
     invitetime bigint DEFAULT 0,
     firstresponsetime bigint DEFAULT 0,
     answertime bigint DEFAULT 0,
-    waittime integer DEFAULT 0
+    waittime integer DEFAULT 0,
+    is_device_ringing boolean DEFAULT false,
+    device_reach_status character varying(32) DEFAULT 'UNKNOWN'::character varying
 );
 
 
@@ -1661,6 +1663,13 @@ CREATE INDEX idx_cdr_records_answertime ON public.cdr_records USING btree (call_
 --
 
 CREATE INDEX idx_cdr_records_invitetime ON public.cdr_records USING btree (call_time DESC, invitetime DESC);
+
+
+--
+-- Name: idx_cdr_device_ringing; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_cdr_device_ringing ON public.cdr_records USING btree (call_time DESC, is_device_ringing);
 
 
 --
