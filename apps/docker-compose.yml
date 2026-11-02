@@ -131,6 +131,7 @@ services:
     environment:
       TZ: ${APP_TZ:-Asia/Jakarta}
     volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
