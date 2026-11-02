@@ -10,3 +10,6 @@ license-server/
 # Runtime logs & data
 logs/
 *.log
+
+# Local helper scripts
+upload_to_git_public.sh
